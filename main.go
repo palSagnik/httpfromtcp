@@ -9,8 +9,9 @@ import (
 	"net"
 )
 
+const port = ":42069"
 func main() {
-	listener, err := net.Listen("tcp", ":42069")
+	listener, err := net.Listen("tcp", port)
 	if err != nil {
 		log.Fatalf("Error listening: %v", err)
 	}
@@ -25,7 +26,7 @@ func main() {
 
 		lines := getLinesChannel(conn)
 		for line := range lines {
-			fmt.Printf("read: %s\n", line)
+			fmt.Println(line)
 		}
 	}
 }
