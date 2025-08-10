@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -18,9 +19,10 @@ func main() {
 	fmt.Printf("Reading data from %s\n", filePath)
 	fmt.Println("=====================================")
 
+	var line string
 	for {
-		buf := make([]byte, 8)
-		_, err := file.Read(buf)
+		data := make([]byte, 8)
+		n, err := file.Read(data)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -28,6 +30,18 @@ func main() {
 			fmt.Printf("error: %s\n", err.Error())
 			break
 		}
-		fmt.Printf("read: %s\n", buf)
+
+		data = data[:n]
+		if i := bytes.IndexByte(data, '\n'); i != -1 {
+			line += string(data[:i])
+			data = data[i + 1:]
+			fmt.Printf("read: %s\n", line)
+			line = ""
+		}
+		line += string(data)
+	}
+
+	if len(line) > 0 {
+		fmt.Printf("read: %s\n", line)
 	}
 }
