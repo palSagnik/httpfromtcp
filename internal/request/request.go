@@ -3,6 +3,7 @@ package request
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 )
@@ -36,14 +37,13 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		return nil, err
 	}
 
-	return &Request{RequestLine: requestLine}, nil
+	return &Request{RequestLine: *requestLine}, nil
 }
 
-func parseRequestLine(reqLine string) (RequestLine, error) {
+func parseRequestLine(reqLine string) (*RequestLine, error) {
 	parts := strings.Split(reqLine, " ")
-	
 	if len(parts) != 3 {
-		return RequestLine{}, errors.New("invalid HTTP request line")
+		return nil, errors.New("poorly formatted request-line")
 	}
 
 	method := string(parts[0])
@@ -52,16 +52,25 @@ func parseRequestLine(reqLine string) (RequestLine, error) {
 
 	// method
 	if strings.ToUpper(method) != method {
-		return RequestLine{}, errors.New("method must be all capital letters")
+		return nil, errors.New("method must be all capital letters")
 	}
 
 	// version
-	version := httpVersion[5:]
-	if version != "1.1" || len(version) != 3 {
-		return RequestLine{}, errors.New("version is not 1.1, only 1.1 supported")
+	versionParts := strings.Split(httpVersion, "/")
+	if len(versionParts) != 2 {
+		return nil, fmt.Errorf("malformed start-line: %s", reqLine)
 	}
 
-	return RequestLine{
+	httpPart := versionParts[0]
+	if httpPart != "HTTP" {
+		return nil, fmt.Errorf("unrecognized HTTP-version: %s", httpPart)
+	}
+	version := versionParts[1]
+	if version != "1.1" {
+		return nil, fmt.Errorf("unrecognized HTTP-version: %s", version)
+	}
+
+	return &RequestLine{
 		Method: method,
 		RequestTarget: target,
 		HttpVersion: version,
