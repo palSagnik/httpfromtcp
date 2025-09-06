@@ -37,32 +37,40 @@ const SEPARATOR = "\r\n"
 
 var ErrorMalformedStartLine = fmt.Errorf("malformed start-line")
 var ErrorUnsupportedHttpVersion = fmt.Errorf("unrecognised http version")
+var ErrorReadWhenDone = fmt.Errorf("reading when parser in done state")
+var ErrorUnknownParserState = fmt.Errorf("unknown parser state")
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
 	request := newRequest()
 
-	buf := make([]byte, 2048)
+	buf := make([]byte, BUFFER_SIZE)
 	bufLen := 0
 
 	for !request.done() {
+		if bufLen >= len(buf) {
+			newBuf := make([]byte, 2 * len(buf))
+			copy(newBuf, buf)
+			buf = newBuf
+		}
+
 		// Read from the reader and store in the buffer
-		n, err := reader.Read(buf[bufLen:])
+		numBytesRead, err := reader.Read(buf[bufLen:])
 		if err != nil {
-			if err == io.EOF {
+			if errors.Is(err, io.EOF) {
 				request.state = STATE_DONE
 				break
 			}
 			return nil, err
 		}
 
-		bufLen += n
-		readN, err := request.parse(buf[:bufLen])
+		bufLen += numBytesRead
+		numBytesParsed, err := request.parse(buf[:bufLen])
 		if err != nil {
 			return nil, err
 		}
 
-		copy(buf, buf[readN:bufLen])
-		bufLen -= readN
+		copy(buf, buf[numBytesParsed:])
+		bufLen -= numBytesParsed
 	}
 
 	return request, nil
@@ -70,30 +78,28 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 
 func (r *Request) parse(data []byte) (int, error) {
 	read := 0
-	outer:
-	for {
-		switch r.state {
-		case STATE_INITIALISED:
-			n, reqLine, err := parseRequestLine(data[read:])
-			if err != nil {
-				return 0, err
-			}
-
-			if n == 0 {
-				break outer
-			}
-
-			r.RequestLine = *reqLine
-			read += n
-
-			r.state = STATE_DONE
-		
-		case STATE_DONE:
-			break outer	
+	switch r.state {
+	case STATE_INITIALISED:
+		n, reqLine, err := parseRequestLine(data[read:])
+		if err != nil {
+			return 0, err
 		}
-	}
 
-	return read, nil
+		if n == 0 {
+			return 0, nil
+		}
+
+		r.RequestLine = *reqLine
+		read += n
+		r.state = STATE_DONE
+		
+		return read, nil
+	case STATE_DONE:
+		return 0, ErrorReadWhenDone
+	default:
+		return 0, ErrorUnknownParserState
+	}
+	
 }
 
 func parseRequestLine(data []byte) (int, *RequestLine, error) {
