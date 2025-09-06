@@ -92,7 +92,7 @@ func (r *Request) parse(data []byte) (int, error) {
 		r.RequestLine = *reqLine
 		read += n
 		r.state = STATE_DONE
-		
+
 		return read, nil
 	case STATE_DONE:
 		return 0, ErrorReadWhenDone
@@ -112,7 +112,6 @@ func parseRequestLine(data []byte) (int, *RequestLine, error) {
 	read := idx + len(SEPARATOR)
 
 	parts := bytes.Split(reqLine, []byte(" "))
-	fmt.Println(parts)
 	if len(parts) != 3 {
 		return read, nil, ErrorMalformedStartLine
 	}
