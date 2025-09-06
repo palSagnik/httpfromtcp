@@ -68,6 +68,34 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 	return request, nil
 }
 
+func (r *Request) parse(data []byte) (int, error) {
+	read := 0
+	outer:
+	for {
+		switch r.state {
+		case STATE_INITIALISED:
+			n, reqLine, err := parseRequestLine(data[read:])
+			if err != nil {
+				return 0, err
+			}
+
+			if n == 0 {
+				break outer
+			}
+
+			r.RequestLine = *reqLine
+			read += n
+
+			r.state = STATE_DONE
+		
+		case STATE_DONE:
+			break outer	
+		}
+	}
+
+	return read, nil
+}
+
 func parseRequestLine(data []byte) (int, *RequestLine, error) {
 	idx := bytes.Index(data, []byte(SEPARATOR))
 	if idx == -1 {
@@ -106,34 +134,6 @@ func parseRequestLine(data []byte) (int, *RequestLine, error) {
 		RequestTarget: target,
 		HttpVersion:   httpParts[1],
 	}, nil
-}
-
-func (r *Request) parse(data []byte) (int, error) {
-	read := 0
-	outer:
-	for {
-		switch r.state {
-		case STATE_INITIALISED:
-			n, reqLine, err := parseRequestLine(data[read:])
-			if err != nil {
-				return 0, err
-			}
-
-			if n == 0 {
-				break outer
-			}
-
-			r.RequestLine = *reqLine
-			read += n
-
-			r.state = STATE_DONE
-		
-		case STATE_DONE:
-			break outer	
-		}
-	}
-
-	return read, nil
 }
 
 func (r *Request) done() bool {
