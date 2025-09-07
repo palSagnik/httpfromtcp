@@ -141,16 +141,15 @@ func (r *Request) parse(data []byte) (int, error) {
 			return 0, headers.ErrorMalformedHeader
 		}
 
-		remaining := contentLen - r.bodyLength
-		if len(data) > remaining {
-			return 0, ErrorUnequalBodyAndContentLength
-		}
-
 		r.Body = append(r.Body, data...)
 		r.bodyLength += len(data)
+		if r.bodyLength > contentLen {
+			return 0, fmt.Errorf("Content-Length too large")
+		}
 		if r.bodyLength == contentLen {
 			r.state = STATE_DONE
 		}
+
 		return len(data), nil
 
 	case STATE_DONE:
