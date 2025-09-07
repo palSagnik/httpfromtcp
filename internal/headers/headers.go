@@ -71,7 +71,7 @@ func parseHeader(data []byte) (string, string, error) {
 func (h Headers) Set(key, value string) {
 	key = strings.ToLower(key)
 	v, ok := h[key]
-	if ok {
+	if ok && v != value {
 		value = strings.Join([]string{v, value}, ", ")
 	}
 	h[key] = value

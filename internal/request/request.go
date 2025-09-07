@@ -26,13 +26,15 @@ type RequestLine struct {
 
 type Request struct {
 	RequestLine RequestLine
-	Header      headers.Headers
+	Headers      headers.Headers
+
 	state       ParserState
 }
 
 func newRequest() *Request {
 	return &Request{
 		state: STATE_INITIALISED,
+		Headers: headers.NewHeaders(),
 	}
 }
 
@@ -46,7 +48,6 @@ var ErrorUnknownParserState = fmt.Errorf("unknown parser state")
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
 	request := newRequest()
-	headers := headers.NewHeaders()
 
 	buf := make([]byte, BUFFER_SIZE)
 	bufLen := 0
@@ -99,15 +100,24 @@ func (r *Request) parse(data []byte) (int, error) {
 		r.state = STATE_PARSING_HEADERS
 
 		return read, nil
+
 	case STATE_PARSING_HEADERS:
-		done := false
-		n, done, err := r.Header.Parse(data[read:])
+		n, done, err := r.Headers.Parse(data[read:])
 		if err != nil {
 			return 0, err
 		}
+		
+		if !done {
+			return 0, err
+		}
+		read += n
+		r.state = STATE_DONE
+
+		return read, nil
 
 	case STATE_DONE:
 		return 0, ErrorReadWhenDone
+		
 	default:
 		return 0, ErrorUnknownParserState
 	}
