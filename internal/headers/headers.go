@@ -18,35 +18,54 @@ const SEPARATOR = "\r\n"
 var ErrorMalformedHeader = fmt.Errorf("malformed header data")
 var ErrorInvalidFieldName = fmt.Errorf("invalid field name")
 
-func (h Headers) Parse(data []byte) (n int, done bool, err error) {
-	idx := bytes.Index(data, []byte(SEPARATOR))
-	if idx == -1 {
-		return 0, false, nil
-	}
-	
-	// CRLF found at the start => end of headers
-	// consume CRLF
-	if idx == 0 {
-		return 2, true, nil
+func (h Headers) Parse(data []byte) (int, bool, error) {
+	read := 0
+	done := false
+	for {
+		idx := bytes.Index(data[read:], []byte(SEPARATOR))
+		if idx == -1 {
+			break 
+		}
+		
+		// CRLF found at the start => end of headers
+		// consume CRLF
+		if idx == 0 {
+			done = true
+			read += len(SEPARATOR)
+			break
+		}
+
+		key, value, err := parseHeader(data[read:read+idx])
+		if err != nil {
+			return 0, false, err
+		}
+		
+		read += idx + len(SEPARATOR)
+		h.Set(key, value)
 	}
 
-	parts := bytes.SplitN(data[:idx], []byte(":"), 2)
+	return read, done, nil
+}
+
+func parseHeader(data []byte) (string, string, error) {
+	parts := bytes.SplitN(data, []byte(":"), 2)
+	if len(parts) != 2 {
+		return "", "", ErrorMalformedHeader
+	}
 
 	// remove whitespaces from start and end
 	if parts[0][len(parts) - 1] == byte(' ') {
-		return 0, false, ErrorMalformedHeader
+		return "", "", ErrorMalformedHeader
 	}
 
 	value := string(bytes.TrimSpace(parts[1]))
-	key := string(bytes.TrimSpace(parts[0]))
+	name := string(bytes.TrimSpace(parts[0]))
 
-	if !validFieldName(key) {
-		return 0, false, ErrorInvalidFieldName
+	if !validFieldName(name) {
+		return "", "", ErrorInvalidFieldName
 	}
 
-	h.Set(key, value)
-
-	return idx + 2, false, nil
+	return name, value, nil
 }
 
 func (h Headers) Set(key, value string) {

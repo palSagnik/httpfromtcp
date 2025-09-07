@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/palSagnik/httpfromtcp/internal/headers"
 )
 
 type ParserState int
@@ -13,6 +15,7 @@ type ParserState int
 const (
 	STATE_INITIALISED ParserState = iota
 	STATE_DONE
+	STATE_PARSING_HEADERS
 )
 
 type RequestLine struct {
@@ -23,7 +26,8 @@ type RequestLine struct {
 
 type Request struct {
 	RequestLine RequestLine
-	state      ParserState
+	Header      headers.Headers
+	state       ParserState
 }
 
 func newRequest() *Request {
@@ -42,13 +46,14 @@ var ErrorUnknownParserState = fmt.Errorf("unknown parser state")
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
 	request := newRequest()
+	headers := headers.NewHeaders()
 
 	buf := make([]byte, BUFFER_SIZE)
 	bufLen := 0
 
 	for !request.done() {
 		if bufLen >= len(buf) {
-			newBuf := make([]byte, 2 * len(buf))
+			newBuf := make([]byte, 2*len(buf))
 			copy(newBuf, buf)
 			buf = newBuf
 		}
@@ -91,15 +96,22 @@ func (r *Request) parse(data []byte) (int, error) {
 
 		r.RequestLine = *reqLine
 		read += n
-		r.state = STATE_DONE
+		r.state = STATE_PARSING_HEADERS
 
 		return read, nil
+	case STATE_PARSING_HEADERS:
+		done := false
+		n, done, err := r.Header.Parse(data[read:])
+		if err != nil {
+			return 0, err
+		}
+
 	case STATE_DONE:
 		return 0, ErrorReadWhenDone
 	default:
 		return 0, ErrorUnknownParserState
 	}
-	
+
 }
 
 func parseRequestLine(data []byte) (int, *RequestLine, error) {
@@ -144,4 +156,3 @@ func parseRequestLine(data []byte) (int, *RequestLine, error) {
 func (r *Request) done() bool {
 	return r.state == STATE_DONE
 }
-

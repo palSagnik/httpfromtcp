@@ -16,8 +16,8 @@ func TestHeadersParse(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, headers)
 	assert.Equal(t, "localhost:42069", headers["host"])
-	assert.Equal(t, 23, n)
-	assert.False(t, done)
+	assert.Equal(t, 25, n)
+	assert.True(t, done)
 
 	// Test: Valid 2 headers with existing headers
 	headers = map[string]string{"host":"localhost:42069"}
@@ -27,8 +27,9 @@ func TestHeadersParse(t *testing.T) {
 	require.NotNil(t, headers)
 	assert.Equal(t, "localhost:42069", headers["host"])
 	assert.Equal(t, "curl/7.81.0", headers["user-agent"])
-	assert.Equal(t, 25, n)
-	assert.False(t, done)
+	assert.Equal(t, "*/*", headers["accept"])
+	assert.Equal(t, 40, n)
+	assert.True(t, done)
 
 	// Test: Valid done
 	headers = NewHeaders()
@@ -47,8 +48,8 @@ func TestHeadersParse(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, headers)
 	assert.Equal(t, "localhost:8000, localhost:42069", headers["host"])
-	assert.Equal(t, 23, n)
-	assert.False(t, done)
+	assert.Equal(t, 25, n)
+	assert.True(t, done)
 
 	// Test: Invalid letter
 	headers = NewHeaders()
