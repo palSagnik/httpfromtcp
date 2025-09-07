@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/palSagnik/httpfromtcp/internal/headers"
@@ -16,6 +17,7 @@ const (
 	STATE_INITIALISED ParserState = iota
 	STATE_DONE
 	STATE_PARSING_HEADERS
+	STATE_PARSING_BODY
 )
 
 type RequestLine struct {
@@ -26,15 +28,18 @@ type RequestLine struct {
 
 type Request struct {
 	RequestLine RequestLine
-	Headers      headers.Headers
+	Headers     headers.Headers
+	Body        []byte
 
-	state       ParserState
+	bodyLength int
+	state      ParserState
 }
 
 func newRequest() *Request {
 	return &Request{
-		state: STATE_INITIALISED,
+		state:   STATE_INITIALISED,
 		Headers: headers.NewHeaders(),
+		Body:    make([]byte, 0),
 	}
 }
 
@@ -45,6 +50,7 @@ var ErrorMalformedStartLine = fmt.Errorf("malformed start-line")
 var ErrorUnsupportedHttpVersion = fmt.Errorf("unrecognised http version")
 var ErrorReadWhenDone = fmt.Errorf("reading when parser in done state")
 var ErrorUnknownParserState = fmt.Errorf("unknown parser state")
+var ErrorUnequalBodyAndContentLength = fmt.Errorf("content-length and body length do not match")
 
 func RequestFromReader(reader io.Reader) (*Request, error) {
 	request := newRequest()
@@ -79,14 +85,24 @@ func RequestFromReader(reader io.Reader) (*Request, error) {
 		bufLen -= numBytesParsed
 	}
 
+	// Minimal EOF validation: if Content-Length present, ensure exact match
+	if contentLenStr, ok := request.Headers.Get("Content-Length"); ok {
+		contentLen, convErr := strconv.Atoi(contentLenStr)
+		if convErr != nil {
+			return nil, headers.ErrorMalformedHeader
+		}
+		if request.bodyLength != contentLen {
+			return nil, ErrorUnequalBodyAndContentLength
+		}
+	}
+
 	return request, nil
 }
 
 func (r *Request) parse(data []byte) (int, error) {
-	read := 0
 	switch r.state {
 	case STATE_INITIALISED:
-		n, reqLine, err := parseRequestLine(data[read:])
+		n, reqLine, err := parseRequestLine(data)
 		if err != nil {
 			return 0, err
 		}
@@ -96,28 +112,50 @@ func (r *Request) parse(data []byte) (int, error) {
 		}
 
 		r.RequestLine = *reqLine
-		read += n
 		r.state = STATE_PARSING_HEADERS
 
-		return read, nil
+		return n, nil
 
 	case STATE_PARSING_HEADERS:
-		n, done, err := r.Headers.Parse(data[read:])
+		n, done, err := r.Headers.Parse(data)
 		if err != nil {
 			return 0, err
 		}
-		
-		if !done {
-			return 0, err
-		}
-		read += n
-		r.state = STATE_DONE
 
-		return read, nil
+		if done {
+			r.state = STATE_PARSING_BODY
+		}
+
+		return n, nil
+
+	case STATE_PARSING_BODY:
+		contentLenStr, ok := r.Headers.Get("Content-Length")
+		if !ok {
+			// no header => no body
+			r.state = STATE_DONE
+			return len(data), nil
+		}
+
+		contentLen, err := strconv.Atoi(contentLenStr)
+		if err != nil {
+			return 0, headers.ErrorMalformedHeader
+		}
+
+		remaining := contentLen - r.bodyLength
+		if len(data) > remaining {
+			return 0, ErrorUnequalBodyAndContentLength
+		}
+
+		r.Body = append(r.Body, data...)
+		r.bodyLength += len(data)
+		if r.bodyLength == contentLen {
+			r.state = STATE_DONE
+		}
+		return len(data), nil
 
 	case STATE_DONE:
 		return 0, ErrorReadWhenDone
-		
+
 	default:
 		return 0, ErrorUnknownParserState
 	}
@@ -150,7 +188,7 @@ func parseRequestLine(data []byte) (int, *RequestLine, error) {
 	// version
 	httpParts := strings.Split(httpVersion, "/")
 	if len(httpParts) != 2 || httpParts[0] != "HTTP" || httpParts[1] != "1.1" {
-		if httpParts[1] != "1.1" {
+		if len(httpParts) == 2 && httpParts[1] != "1.1" {
 			return read, nil, ErrorUnsupportedHttpVersion
 		}
 		return read, nil, ErrorMalformedStartLine
