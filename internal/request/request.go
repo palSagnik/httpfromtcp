@@ -123,7 +123,23 @@ func (r *Request) parse(data []byte) (int, error) {
 		}
 
 		if done {
-			r.state = STATE_PARSING_BODY
+			// If headers finished, decide whether a body is expected.
+			if contentLenStr, ok := r.Headers.Get("Content-Length"); ok {
+				contentLen, err := strconv.Atoi(contentLenStr)
+				if err != nil {
+					return 0, headers.ErrorMalformedHeader
+				}
+				if contentLen == 0 {
+					// No body to read, finish immediately.
+					r.state = STATE_DONE
+					return n, nil
+				}
+				// Positive content length: proceed to body parsing.
+				r.state = STATE_PARSING_BODY
+			} else {
+				// No Content-Length => no body expected.
+				r.state = STATE_DONE
+			}
 		}
 
 		return n, nil
