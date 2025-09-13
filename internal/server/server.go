@@ -1,10 +1,9 @@
 package server
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"net"
+	"sync/atomic"
 
 	"github.com/palSagnik/httpfromtcp/internal/request"
 	"github.com/palSagnik/httpfromtcp/internal/response"
@@ -13,9 +12,9 @@ import (
 type Server struct {
 	Address  string
 	Listener net.Listener
-	HttpHandler	Handler
+	Handler	Handler
 
-	closed bool
+	closed atomic.Bool
 }
 
 type HandlerError struct {
@@ -23,7 +22,7 @@ type HandlerError struct {
 	Message    string
 }
 
-type Handler func(w io.Writer, req *request.Request) *HandlerError 
+type Handler func(w *response.Writer, req *request.Request) 
 
 
 func Serve(port int, handler Handler) (*Server, error) {
@@ -33,48 +32,35 @@ func Serve(port int, handler Handler) (*Server, error) {
 		return nil, err
 	}
 
-	server := &Server{Address: address, Listener: l, HttpHandler: handler, closed: false}
+	server := &Server{Address: address, Listener: l, Handler: handler}
 	go server.listen()
 
 	return server, nil
 }
 
 func (s *Server) Close() error {
-	if err := s.Listener.Close(); err != nil {
-		return err
+	s.closed.Store(true)
+	if s.Listener != nil {
+		return s.Listener.Close()
 	}
-	s.closed = true
 	return nil
 }
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
-	headers := response.GetDefaultHeaders(0)
+	responseWriter := response.NewWriter(conn)
 
 	request, err := request.RequestFromReader(conn)
 	if err != nil {
-		response.WriteStatusLine(conn, response.StatusCodeBadRequest)
-		response.WriteHeaders(conn, headers)
+		handlerErr := &HandlerError{
+			StatusCode: response.StatusCodeBadRequest,
+			Message:    err.Error(),
+		}
+		handlerErr.Write(responseWriter)
 		return
 	}
 
-	writer := bytes.NewBuffer([]byte{})
-	handlerError := s.HttpHandler(writer, request)
-	if handlerError != nil {
-		bodyBytes := []byte(handlerError.Message)
-		headers.Replace("Content-Length", fmt.Sprintf("%d", len(bodyBytes)))
-
-		response.WriteStatusLine(conn, handlerError.StatusCode)
-		response.WriteHeaders(conn, headers)
-		conn.Write(bodyBytes)
-		return
-	}
-	
-	body := writer.Bytes()
-	headers.Replace("Content-Length", fmt.Sprintf("%d", len(body)))
-	response.WriteStatusLine(conn, response.StatusCodeOK)
-	response.WriteHeaders(conn, headers)
-	conn.Write(body)
+	s.Handler(responseWriter, request)
 }
 
 func (s *Server) listen() {
@@ -84,10 +70,18 @@ func (s *Server) listen() {
 			return
 		}
 
-		if s.closed {
+		if s.closed.Load() {
 			return
 		}
 
 		go s.handle(conn)
 	}
+}
+
+func (he HandlerError) Write(res *response.Writer) {
+	res.WriteStatusLine(he.StatusCode)
+	messageBytes := []byte(he.Message)
+	headers := response.GetDefaultHeaders(len(messageBytes))
+	res.WriteHeaders(headers)
+	res.WriteBody(messageBytes)
 }
